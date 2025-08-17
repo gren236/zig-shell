@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub fn main() !void {
+pub fn handle() !void {
     const stdout = std.io.getStdOut().writer();
     try stdout.print("$ ", .{});
 
@@ -9,4 +9,10 @@ pub fn main() !void {
     const user_input = try stdin.readUntilDelimiter(&buffer, '\n');
 
     try stdout.print("{s}: command not found\n", .{user_input});
+}
+
+pub fn main() !void {
+    while (true) {
+        try handle();
+    }
 }
