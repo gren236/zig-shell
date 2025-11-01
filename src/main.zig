@@ -1,13 +1,23 @@
 const std = @import("std");
 
-const Command = enum {
+const BuiltIn = enum {
     undefined,
     exit,
     echo,
+    type,
 };
 
 pub fn handle_cmd_exit(status: u8) void {
     std.posix.exit(status);
+}
+
+pub fn handle_cmd_type(writer: *std.Io.Writer, arg: []const u8) !void {
+    if (std.meta.stringToEnum(BuiltIn, arg) == null) {
+        try writer.print("{s}: not found\n", .{arg});
+        return;
+    }
+
+    try writer.print("{s} is a shell builtin\n", .{arg});
 }
 
 pub fn handle() !void {
@@ -25,7 +35,7 @@ pub fn handle() !void {
     const user_input = try stdin.takeDelimiterExclusive('\n');
 
     var cmd_iter = std.mem.splitScalar(u8, user_input, ' ');
-    const command = std.meta.stringToEnum(Command, cmd_iter.first()) orelse Command.undefined;
+    const command = std.meta.stringToEnum(BuiltIn, cmd_iter.first()) orelse BuiltIn.undefined;
 
     defer stdout.flush() catch std.posix.exit(5);
 
@@ -35,9 +45,8 @@ pub fn handle() !void {
 
             handle_cmd_exit(status);
         },
-        .echo => {
-            try stdout.print("{s}\n", .{cmd_iter.rest()});
-        },
+        .echo => try stdout.print("{s}\n", .{cmd_iter.rest()}),
+        .type => try handle_cmd_type(stdout, cmd_iter.rest()),
         else => try stdout.print("{s}: command not found\n", .{user_input}),
     }
 }
