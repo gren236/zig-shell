@@ -1,6 +1,10 @@
 const std = @import("std");
 
-const Command = enum { undefined, exit };
+const Command = enum {
+    undefined,
+    exit,
+    echo,
+};
 
 pub fn handle_cmd_exit(status: u8) void {
     std.posix.exit(status);
@@ -23,16 +27,19 @@ pub fn handle() !void {
     var cmd_iter = std.mem.splitScalar(u8, user_input, ' ');
     const command = std.meta.stringToEnum(Command, cmd_iter.first()) orelse Command.undefined;
 
+    defer stdout.flush() catch std.posix.exit(5);
+
     switch (command) {
         .exit => {
             const status: u8 = if (cmd_iter.next()) |arg| try std.fmt.parseUnsigned(u8, arg, 10) else 0;
 
             handle_cmd_exit(status);
         },
+        .echo => {
+            try stdout.print("{s}\n", .{cmd_iter.rest()});
+        },
         else => try stdout.print("{s}: command not found\n", .{user_input}),
     }
-
-    try stdout.flush();
 }
 
 pub fn main() !void {
