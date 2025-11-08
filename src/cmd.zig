@@ -101,7 +101,7 @@ pub fn handleCd(allocator: std.mem.Allocator, writer: *std.Io.Writer, arg: []con
 
         path = try std.fmt.allocPrint(allocator, "{s}{s}", .{ home_dir, arg[1..] });
     } else {
-        @memcpy(path, arg);
+        path = try allocator.dupe(u8, arg);
     }
 
     std.posix.chdir(path) catch {
