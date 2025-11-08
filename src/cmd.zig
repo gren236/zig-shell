@@ -30,18 +30,20 @@ pub fn handleType(allocator: std.mem.Allocator, writer: *std.Io.Writer, arg: []c
 }
 
 pub fn handleCommand(allocator: std.mem.Allocator, writer: *std.Io.Writer, command: []const u8, args_str: []const u8) !void {
+    // check if command exists
     const path_val = try std.process.getEnvVarOwned(allocator, "PATH");
     defer allocator.free(path_val);
 
-    const command_full_path = checkCommandInPath(allocator, path_val, command) catch {
+    _ = checkCommandInPath(allocator, path_val, command) catch {
         try writer.print("{s}: command not found\n", .{command});
         return;
     };
 
+    // now run it if found
     var args_list = try std.ArrayList([]const u8).initCapacity(allocator, 1);
     defer args_list.deinit(allocator);
 
-    try args_list.append(allocator, command_full_path);
+    try args_list.append(allocator, command);
 
     var args_iter = std.mem.splitScalar(u8, args_str, ' ');
     while (args_iter.next()) |arg| {
