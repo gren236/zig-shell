@@ -90,8 +90,21 @@ pub fn handlePwd(allocator: std.mem.Allocator, writer: *std.Io.Writer) !void {
     try writer.print("{s}\n", .{path});
 }
 
-pub fn handleCd(writer: *std.Io.Writer, arg: []const u8) !void {
-    std.posix.chdir(arg) catch {
+pub fn handleCd(allocator: std.mem.Allocator, writer: *std.Io.Writer, arg: []const u8) !void {
+    var path: []u8 = undefined;
+    defer allocator.free(path);
+
+    // check if ~ passed
+    if (std.mem.startsWith(u8, arg, "~")) {
+        const home_dir = try std.process.getEnvVarOwned(allocator, "HOME");
+        defer allocator.free(home_dir);
+
+        path = try std.fmt.allocPrint(allocator, "{s}{s}", .{ home_dir, arg[1..] });
+    } else {
+        @memcpy(path, arg);
+    }
+
+    std.posix.chdir(path) catch {
         try writer.print("cd: {s}: No such file or directory\n", .{arg});
     };
 }
@@ -111,7 +124,7 @@ pub fn handle(allocator: std.mem.Allocator, writer: *std.Io.Writer, args_iter: *
         .echo => try handleEcho(writer, args_iter.rest()),
         .type => try handleType(allocator, writer, args_iter.rest()),
         .pwd => try handlePwd(allocator, writer),
-        .cd => try handleCd(writer, args_iter.rest()),
+        .cd => try handleCd(allocator, writer, args_iter.rest()),
         else => try handleCommand(allocator, writer, command_str, args_iter.rest()),
     }
 }
