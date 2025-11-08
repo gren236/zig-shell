@@ -6,6 +6,7 @@ pub const BuiltIn = enum {
     echo,
     type,
     pwd,
+    cd,
 };
 
 pub fn handleExit(status: u8) void {
@@ -89,6 +90,12 @@ pub fn handlePwd(allocator: std.mem.Allocator, writer: *std.Io.Writer) !void {
     try writer.print("{s}\n", .{path});
 }
 
+pub fn handleCd(writer: *std.Io.Writer, arg: []const u8) !void {
+    std.posix.chdir(arg) catch {
+        try writer.print("cd: {s}: No such file or directory\n", .{arg});
+    };
+}
+
 pub fn handle(allocator: std.mem.Allocator, writer: *std.Io.Writer, args_iter: *std.mem.SplitIterator(u8, .scalar)) !void {
     const command_str = args_iter.first();
     const command = std.meta.stringToEnum(BuiltIn, command_str) orelse BuiltIn.undefined;
@@ -104,6 +111,7 @@ pub fn handle(allocator: std.mem.Allocator, writer: *std.Io.Writer, args_iter: *
         .echo => try handleEcho(writer, args_iter.rest()),
         .type => try handleType(allocator, writer, args_iter.rest()),
         .pwd => try handlePwd(allocator, writer),
+        .cd => try handleCd(writer, args_iter.rest()),
         else => try handleCommand(allocator, writer, command_str, args_iter.rest()),
     }
 }
