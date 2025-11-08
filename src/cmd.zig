@@ -29,7 +29,36 @@ pub fn handleType(allocator: std.mem.Allocator, writer: *std.Io.Writer, arg: []c
     try writer.print("{s} is {s}\n", .{ arg, full_path });
 }
 
+pub fn handleCommand(allocator: std.mem.Allocator, writer: *std.Io.Writer, command: []const u8, args_str: []const u8) !void {
+    const path_val = try std.process.getEnvVarOwned(allocator, "PATH");
+    defer allocator.free(path_val);
+
+    const command_full_path = checkCommandInPath(allocator, path_val, command) catch {
+        try writer.print("{s}: command not found\n", .{command});
+        return;
+    };
+
+    var args_list = try std.ArrayList([]const u8).initCapacity(allocator, 1);
+    defer args_list.deinit(allocator);
+
+    try args_list.append(allocator, command_full_path);
+
+    var args_iter = std.mem.splitScalar(u8, args_str, ' ');
+    while (args_iter.next()) |arg| {
+        try args_list.append(allocator, arg);
+    }
+
+    var cmd_proc = std.process.Child.init(args_list.items, allocator);
+    _ = try cmd_proc.spawnAndWait();
+}
+
 fn checkCommandInPath(allocator: std.mem.Allocator, path_str: []const u8, command: []const u8) ![]const u8 {
+    // first try if command already accessible (AKA absolute path)
+    if (std.posix.access(command, std.posix.X_OK)) {
+        return command;
+    } else |_| {}
+
+    // if not accessible, check in path var
     var paths_iter = std.mem.splitScalar(u8, path_str, ':');
 
     while (paths_iter.next()) |path_dir| {
@@ -64,6 +93,6 @@ pub fn handle(allocator: std.mem.Allocator, writer: *std.Io.Writer, args_iter: *
         },
         .echo => try handleEcho(writer, args_iter.rest()),
         .type => try handleType(allocator, writer, args_iter.rest()),
-        else => try writer.print("{s}: command not found\n", .{command_str}),
+        else => try handleCommand(allocator, writer, command_str, args_iter.rest()),
     }
 }
