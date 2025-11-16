@@ -127,19 +127,26 @@ const Args = struct {
     fn init(allocator: std.mem.Allocator, raw: []const u8) !Args {
         var parsed_list = try std.ArrayList([]const u8).initCapacity(allocator, 0);
 
-        var in_quotes = false;
+        var in_single_quotes = false;
+        var in_double_quotes = false;
         var arg_buf = try std.ArrayList(u8).initCapacity(allocator, raw.len);
         defer arg_buf.deinit(allocator); // just in case
         for (raw) |char| {
-            // if \ met - toggle in quotes
-            if (char == '\'') {
-                in_quotes = if (in_quotes) false else true;
+            // if ' met - toggle in single quotes, if not in double quotes already
+            if (char == '\'' and !in_double_quotes) {
+                in_single_quotes = if (in_single_quotes) false else true;
+                continue;
+            }
+
+            // if " met - toggle in double quotes, if not in single quotes already
+            if (char == '"' and !in_single_quotes) {
+                in_double_quotes = if (in_double_quotes) false else true;
                 continue;
             }
 
             if (char == ' ') {
                 // if whitespace and we are in quotes - add it to the arg
-                if (in_quotes) {
+                if (in_single_quotes or in_double_quotes) {
                     try arg_buf.append(allocator, char);
                     continue;
                 }
@@ -160,7 +167,7 @@ const Args = struct {
         }
 
         // if no more chars and still in quotes - error
-        if (in_quotes) {
+        if (in_single_quotes or in_double_quotes) {
             return error.BadArguments;
         }
 
@@ -198,9 +205,14 @@ test Args {
             .input = "hello        world",
             .expected = &.{ "hello", "world" },
         },
+        // test single quotes
         .{
             .input = "'hello' 'world'",
             .expected = &.{ "hello", "world" },
+        },
+        .{
+            .input = "'hello\"' '\"world\"'",
+            .expected = &.{ "hello\"", "\"world\"" },
         },
         .{
             .input = "'hello     world'",
@@ -210,6 +222,24 @@ test Args {
             .input = "hello''world",
             .expected = &.{"helloworld"},
         },
+        // test double quotes
+        .{
+            .input = "\"hello\" \"world\"",
+            .expected = &.{ "hello", "world" },
+        },
+        .{
+            .input = "\"hello's\" \"wor'ld\"",
+            .expected = &.{ "hello's", "wor'ld" },
+        },
+        .{
+            .input = "\"hello      world\"",
+            .expected = &.{"hello      world"},
+        },
+        .{
+            .input = "hello\"\"world",
+            .expected = &.{"helloworld"},
+        },
+        // test error
         .{
             .input = "hello'world",
             .expectErr = true,
