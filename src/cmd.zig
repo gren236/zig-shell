@@ -131,39 +131,47 @@ const Args = struct {
         var in_double_quotes = false;
         var arg_buf = try std.ArrayList(u8).initCapacity(allocator, raw.len);
         defer arg_buf.deinit(allocator); // just in case
-        for (raw) |char| {
-            // if ' met - toggle in single quotes, if not in double quotes already
-            if (char == '\'' and !in_double_quotes) {
-                in_single_quotes = if (in_single_quotes) false else true;
-                continue;
-            }
+        var i: u32 = 0;
+        while (i < raw.len) : (i += 1) {
+            const char = raw[i];
+            const add_char = sw: switch (char) {
+                '\'' => if (!in_double_quotes) {
+                    in_single_quotes = !in_single_quotes;
+                    break :sw false;
+                } else true,
+                '"' => if (!in_single_quotes) {
+                    in_double_quotes = !in_double_quotes;
+                    break :sw false;
+                } else true,
+                ' ' => blk: {
+                    // if whitespace and we are in quotes - add it to the arg
+                    if (in_single_quotes or in_double_quotes) {
+                        break :blk true;
+                    }
 
-            // if " met - toggle in double quotes, if not in single quotes already
-            if (char == '"' and !in_single_quotes) {
-                in_double_quotes = if (in_double_quotes) false else true;
-                continue;
-            }
+                    // if whitespace and not in quotes - finish this arg and reinit buffer
+                    if (arg_buf.items.len > 0) {
+                        try parsed_list.append(allocator, try arg_buf.toOwnedSlice(allocator));
+                        arg_buf = try std.ArrayList(u8).initCapacity(allocator, raw.len);
+                        continue;
+                    }
 
-            if (char == ' ') {
-                // if whitespace and we are in quotes - add it to the arg
-                if (in_single_quotes or in_double_quotes) {
-                    try arg_buf.append(allocator, char);
-                    continue;
-                }
+                    // not in quotes, arg has no chars - just skip
+                    break :blk false;
+                },
+                '\\' => blk: {
+                    if (!in_single_quotes and !in_double_quotes) {
+                        try arg_buf.append(allocator, raw[i + 1]);
+                        i += 1;
+                        continue;
+                    }
 
-                // if whitespace and not in quotes - finish this arg and reinit buffer
-                if (arg_buf.items.len > 0) {
-                    try parsed_list.append(allocator, try arg_buf.toOwnedSlice(allocator));
-                    arg_buf = try std.ArrayList(u8).initCapacity(allocator, raw.len);
-                    continue;
-                }
+                    break :blk true;
+                },
+                else => true, // regular char, add to the arg
+            };
 
-                // not in quotes, arg has no chars - just skip
-                continue;
-            }
-
-            // otherwise just add a regular char to arg
-            try arg_buf.append(allocator, char);
+            if (add_char) try arg_buf.append(allocator, char);
         }
 
         // if no more chars and still in quotes - error
@@ -238,6 +246,19 @@ test Args {
         .{
             .input = "hello\"\"world",
             .expected = &.{"helloworld"},
+        },
+        // test backslash
+        .{
+            .input = "\"before\\   after\"",
+            .expected = &.{"before\\   after"},
+        },
+        .{
+            .input = "world\\ \\ \\ \\ \\ \\ script",
+            .expected = &.{"world      script"},
+        },
+        .{
+            .input = "world scrip\\t\\ ",
+            .expected = &.{ "world", "script " },
         },
         // test error
         .{
