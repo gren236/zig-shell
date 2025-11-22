@@ -121,6 +121,14 @@ pub fn handleCd(allocator: std.mem.Allocator, writer: *std.Io.Writer, args: Args
     };
 }
 
+const DoubleQuoteEscapeChar = enum(u8) {
+    double_quote = '"',
+    backslash = '\\',
+    dollar = '$',
+    backtick = '`',
+    newline = '\n',
+};
+
 const Args = struct {
     parsed: []const []const u8,
 
@@ -160,13 +168,23 @@ const Args = struct {
                     break :blk false;
                 },
                 '\\' => blk: {
-                    if (!in_single_quotes and !in_double_quotes) {
-                        try arg_buf.append(allocator, raw[i + 1]);
-                        i += 1;
-                        continue;
+                    if (in_single_quotes) {
+                        break :blk true;
                     }
 
-                    break :blk true;
+                    if (in_double_quotes) {
+                        if (std.enums.fromInt(DoubleQuoteEscapeChar, raw[i + 1]) != null) {
+                            try arg_buf.append(allocator, raw[i + 1]);
+                            i += 1;
+                            continue;
+                        } else {
+                            break :blk true;
+                        }
+                    }
+
+                    try arg_buf.append(allocator, raw[i + 1]);
+                    i += 1;
+                    continue;
                 },
                 else => true, // regular char, add to the arg
             };
@@ -247,6 +265,14 @@ test Args {
             .input = "hello\"\"world",
             .expected = &.{"helloworld"},
         },
+        .{
+            .input = "\"A \\\\ escapes itself\"",
+            .expected = &.{"A \\ escapes itself"},
+        },
+        .{
+            .input = "\"A \\\" inside double quotes\"",
+            .expected = &.{"A \" inside double quotes"},
+        },
         // test backslash
         .{
             .input = "\"before\\   after\"",
@@ -259,6 +285,14 @@ test Args {
         .{
             .input = "world scrip\\t\\ ",
             .expected = &.{ "world", "script " },
+        },
+        .{
+            .input = "\"hello'script'\\\\n'world\"",
+            .expected = &.{"hello'script'\\n'world"},
+        },
+        .{
+            .input = "\"hello\\\"insidequotes\"script\\\"",
+            .expected = &.{"hello\"insidequotesscript\""},
         },
         // test error
         .{
