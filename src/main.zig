@@ -15,13 +15,11 @@ pub fn handle() !void {
     var stdin = &stdin_reader.interface;
     const user_input = try stdin.takeDelimiterExclusive('\n');
 
-    var cmd_iter = std.mem.splitScalar(u8, user_input, ' ');
-
     var gpa: std.heap.DebugAllocator(.{}) = .init;
     var arena_alloc = std.heap.ArenaAllocator.init(gpa.allocator());
     defer _ = arena_alloc.reset(.free_all);
 
-    try cmd.handle(arena_alloc.allocator(), stdout, &cmd_iter);
+    try cmd.handle(arena_alloc.allocator(), stdout, user_input);
 }
 
 pub fn main() !void {

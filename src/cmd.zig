@@ -10,15 +10,15 @@ pub const BuiltIn = enum {
 };
 
 pub fn handleExit(args: Args) !void {
-    const status: u8 = if (args.parsed.len != 0) try std.fmt.parseUnsigned(u8, args.parsed[0], 10) else 0;
+    const status: u8 = if (args != null) try std.fmt.parseUnsigned(u8, args.?[0], 10) else 0;
 
     std.posix.exit(status);
 }
 
 pub fn handleType(allocator: std.mem.Allocator, writer: *std.Io.Writer, args: Args) !void {
-    if (args.parsed.len == 0) return error.BadArguments;
+    if (args == null) return error.BadArguments;
 
-    const arg = args.parsed[0];
+    const arg = args.?[0];
     if (std.meta.stringToEnum(BuiltIn, arg) != null) {
         try writer.print("{s} is a shell builtin\n", .{arg});
         return;
@@ -51,7 +51,7 @@ pub fn handleCommand(allocator: std.mem.Allocator, writer: *std.Io.Writer, comma
     defer args_list.deinit(allocator);
 
     try args_list.append(allocator, command);
-    try args_list.appendSlice(allocator, args.parsed);
+    if (args != null) try args_list.appendSlice(allocator, args.?);
 
     var cmd_proc = std.process.Child.init(args_list.items, allocator);
     _ = try cmd_proc.spawnAndWait();
@@ -81,9 +81,11 @@ fn checkCommandInPath(allocator: std.mem.Allocator, path_str: []const u8, comman
 }
 
 pub fn handleEcho(writer: *std.Io.Writer, args: Args) !void {
-    for (args.parsed, 0..) |arg, i| {
-        if (i != 0) try writer.print(" ", .{});
-        try writer.print("{s}", .{arg});
+    if (args != null) {
+        for (args.?, 0..) |arg, i| {
+            if (i != 0) try writer.print(" ", .{});
+            try writer.print("{s}", .{arg});
+        }
     }
     try writer.print("\n", .{});
 }
@@ -100,10 +102,10 @@ pub fn handleCd(allocator: std.mem.Allocator, writer: *std.Io.Writer, args: Args
     defer allocator.free(path);
 
     var arg: []const u8 = undefined;
-    if (args.parsed.len == 0) {
+    if (args == null) {
         arg = "~";
     } else {
-        arg = args.parsed[0];
+        arg = args.?[0];
     }
 
     // check if ~ passed
@@ -129,10 +131,14 @@ const DoubleQuoteEscapeChar = enum(u8) {
     newline = '\n',
 };
 
-const Args = struct {
-    parsed: []const []const u8,
+const Args = ?[]const []const u8;
 
-    fn init(allocator: std.mem.Allocator, raw: []const u8) !Args {
+const Input = struct {
+    parsed: []const []const u8,
+    command: ?[]const u8,
+    args: Args,
+
+    fn init(allocator: std.mem.Allocator, raw: []const u8) !Input {
         var parsed_list = try std.ArrayList([]const u8).initCapacity(allocator, 0);
 
         var in_single_quotes = false;
@@ -202,12 +208,16 @@ const Args = struct {
             try parsed_list.append(allocator, try arg_buf.toOwnedSlice(allocator));
         }
 
+        const parsed = try parsed_list.toOwnedSlice(allocator);
+
         return .{
-            .parsed = try parsed_list.toOwnedSlice(allocator),
+            .parsed = parsed,
+            .command = if (parsed.len > 0) parsed[0] else null,
+            .args = if (parsed.len > 1) parsed[1..] else null,
         };
     }
 
-    fn deinit(self: *Args, allocator: std.mem.Allocator) void {
+    fn deinit(self: *Input, allocator: std.mem.Allocator) void {
         for (self.parsed) |arg| {
             allocator.free(arg);
         }
@@ -216,7 +226,7 @@ const Args = struct {
     }
 };
 
-test Args {
+test Input {
     const TestCase = struct {
         input: []const u8,
         expected: []const []const u8 = undefined,
@@ -305,23 +315,25 @@ test Args {
         std.debug.print("Args testcase: {s}\n", .{tc.input});
 
         if (tc.expectErr) {
-            try std.testing.expectError(error.BadArguments, Args.init(std.testing.allocator, tc.input));
+            try std.testing.expectError(error.BadArguments, Input.init(std.testing.allocator, tc.input));
         } else {
-            var args = try Args.init(std.testing.allocator, tc.input);
+            var args = try Input.init(std.testing.allocator, tc.input);
             defer args.deinit(std.testing.allocator);
             try std.testing.expectEqualDeep(tc.expected, args.parsed);
         }
     }
 }
 
-pub fn handle(allocator: std.mem.Allocator, writer: *std.Io.Writer, args_iter: *std.mem.SplitIterator(u8, .scalar)) !void {
-    const command_str = args_iter.first();
-    const command = std.meta.stringToEnum(BuiltIn, command_str) orelse BuiltIn.undefined;
-
+pub fn handle(allocator: std.mem.Allocator, writer: *std.Io.Writer, args_raw: []const u8) !void {
     defer writer.flush() catch std.posix.exit(5);
 
-    var args = try Args.init(allocator, args_iter.rest());
-    defer args.deinit(allocator);
+    var args_input = try Input.init(allocator, args_raw);
+    defer args_input.deinit(allocator);
+
+    if (args_input.parsed.len <= 0) return;
+
+    const command = std.meta.stringToEnum(BuiltIn, args_input.command orelse return) orelse BuiltIn.undefined;
+    const args = args_input.args;
 
     switch (command) {
         .exit => try handleExit(args),
@@ -329,6 +341,6 @@ pub fn handle(allocator: std.mem.Allocator, writer: *std.Io.Writer, args_iter: *
         .type => try handleType(allocator, writer, args),
         .pwd => try handlePwd(allocator, writer),
         .cd => try handleCd(allocator, writer, args),
-        else => try handleCommand(allocator, writer, command_str, args),
+        else => try handleCommand(allocator, writer, args_input.command.?, args),
     }
 }
